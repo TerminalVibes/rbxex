@@ -1,0 +1,12 @@
+{
+  "name": "FixtureProject",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      }
+    }
+  }
+}

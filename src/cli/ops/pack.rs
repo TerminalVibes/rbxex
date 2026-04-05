@@ -1,0 +1,247 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result, bail};
+use notify::{RecursiveMode, Watcher};
+use rbx_dom_weak::WeakDom;
+use rbxex::core::pack::{BundleOptions, bundle, config};
+use tracing::{debug, error, info, instrument, warn};
+
+use crate::cli::commands::pack::{CliTarget, PackArgs};
+use crate::cli::utils::rojo::{build_rojo, is_rojo_project, register_project_watches};
+
+#[instrument(skip_all, err)]
+pub fn run(args: PackArgs) -> Result<()> {
+    if args.watch {
+        return run_watch(args);
+    }
+    build_once(&args)
+}
+
+fn build_once(args: &PackArgs) -> Result<()> {
+    let start_time = Instant::now();
+
+    let inputs = resolve_inputs(&args.input)?;
+    if inputs.is_empty() {
+        bail!("No .project.json or .rbxm files found in {:?}", args.input);
+    }
+
+    fs::create_dir_all(&args.out_dir).context("Failed to create output directory")?;
+
+    let header = load_header(args)?;
+
+    let mut failed = 0usize;
+    for input in &inputs {
+        if let Err(e) = build_input(input, args, &header) {
+            error!(path = ?input, "Build failed: {:#}", e);
+            failed += 1;
+        }
+    }
+
+    if failed > 0 {
+        bail!("{} of {} input(s) failed to build", failed, inputs.len());
+    }
+
+    info!(elapsed = ?start_time.elapsed(), "Built all targets");
+    Ok(())
+}
+
+fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> Result<()> {
+    let temp_rbxm = if is_rojo_project(input_path) {
+        info!(path = ?input_path, "Building Rojo project...");
+        Some(build_rojo(input_path)?)
+    } else {
+        None
+    };
+
+    let model_path = temp_rbxm.as_deref().unwrap_or(input_path);
+
+    info!(path = ?model_path, "Loading model...");
+    let dom = load_model(model_path)?;
+
+    if let Some(ref path) = temp_rbxm {
+        debug!(?path, "Cleaning up temporary file");
+        let _ = fs::remove_file(path);
+    }
+
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("bundle");
+
+    for &target in &args.targets {
+        let span = tracing::info_span!("pack_target", ?target);
+        let _enter = span.enter();
+
+        let (suffix, options) = configure_target(target);
+        let filename = format!("{}.{}.lua", stem, suffix);
+        let output_path = args.out_dir.join(&filename);
+
+        info!("Packing target...");
+
+        let mut source =
+            bundle(&dom, options).with_context(|| format!("Failed to pack target {:?}", target))?;
+
+        if let Some(h) = header {
+            source = format!("{h}\n{source}");
+        }
+
+        fs::write(&output_path, source)
+            .with_context(|| format!("Failed to write output to {}", output_path.display()))?;
+
+        info!(%filename, "Target packed successfully");
+    }
+
+    Ok(())
+}
+
+fn run_watch(args: PackArgs) -> Result<()> {
+    let input = args
+        .input
+        .canonicalize()
+        .context("Failed to resolve input path")?;
+
+    info!("Starting watch mode");
+    if let Err(e) = build_once(&args) {
+        error!("Initial build failed: {:#}", e);
+    }
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send(res);
+    })?;
+
+    if input.is_dir() {
+        // watch the directory non-recursively (catches new project files being added)
+        watcher.watch(&input, RecursiveMode::NonRecursive)?;
+        // also watch all $path dirs from each found project file
+        for project_path in resolve_inputs(&input)? {
+            register_project_watches(&mut watcher, &project_path)?;
+        }
+    } else if is_rojo_project(&input) {
+        register_project_watches(&mut watcher, &input)?;
+    } else {
+        // .rbxm — just watch the file itself
+        watcher.watch(&input, RecursiveMode::NonRecursive)?;
+        debug!(?input, "Watching .rbxm file");
+    }
+
+    loop {
+        match rx.recv() {
+            Err(_) => break,
+            Ok(Err(e)) => {
+                warn!("Watch error: {}", e);
+                continue;
+            }
+            Ok(Ok(_)) => {}
+        }
+
+        // debounce: drain further events within 50ms
+        let deadline = Instant::now() + Duration::from_millis(50);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match rx.recv_timeout(remaining) {
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+
+        info!("Change detected, rebuilding...");
+        if let Err(e) = build_once(&args) {
+            error!("Build failed: {:#}", e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Resolves the input to a list of concrete `.project.json` or `.rbxm` files.
+/// For a directory, finds all `*.project.json` files directly within it.
+pub(crate) fn resolve_inputs(input: &Path) -> Result<Vec<PathBuf>> {
+    if !input.exists() {
+        bail!("Input path does not exist: {}", input.display());
+    }
+
+    if input.is_dir() {
+        // Prefer default.project.json if it exists
+        let default = input.join("default.project.json");
+        if default.is_file() {
+            return Ok(vec![default]);
+        }
+
+        let entries =
+            fs::read_dir(input).with_context(|| format!("Failed to read directory {:?}", input))?;
+        let mut found = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && is_rojo_project(&path) {
+                found.push(path);
+            }
+        }
+        Ok(found)
+    } else if input.is_file() {
+        Ok(vec![input.to_path_buf()])
+    } else {
+        bail!("Input path is not a file or directory: {}", input.display());
+    }
+}
+
+pub(crate) fn load_header(args: &PackArgs) -> Result<Option<String>> {
+    if let Some(header_path) = &args.header {
+        debug!(?header_path, "Reading custom header");
+        Ok(Some(
+            fs::read_to_string(header_path).context("Failed to read header file")?,
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+#[instrument(skip(path), fields(path = ?path), err)]
+fn load_model(path: &Path) -> Result<WeakDom> {
+    let file = fs::File::open(path).context("Failed to open model file")?;
+    let reader = std::io::BufReader::new(file);
+    rbx_binary::from_reader(reader).context("Failed to decode model")
+}
+
+pub(crate) fn configure_target(target: CliTarget) -> (&'static str, BundleOptions) {
+    match target {
+        CliTarget::Dev => (
+            "debug",
+            BundleOptions {
+                sourcemap: true,
+                preprocess: Some(config::dev()),
+                postprocess: None,
+            },
+        ),
+        CliTarget::DevCompat => (
+            "debug.c",
+            BundleOptions {
+                sourcemap: true,
+                preprocess: Some(config::dev_compat()),
+                postprocess: None,
+            },
+        ),
+        CliTarget::Rel => (
+            "release",
+            BundleOptions {
+                sourcemap: false,
+                preprocess: None,
+                postprocess: Some(config::minify()),
+            },
+        ),
+        CliTarget::RelCompat => (
+            "release.c",
+            BundleOptions {
+                sourcemap: false,
+                preprocess: None,
+                postprocess: Some(config::minify_compat()),
+            },
+        ),
+    }
+}
