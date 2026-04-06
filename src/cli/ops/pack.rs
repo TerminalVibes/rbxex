@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use chrono::Local;
 use notify::{RecursiveMode, Watcher};
+use owo_colors::{OwoColorize, Stream};
 use rbx_dom_weak::WeakDom;
 use rbxex::core::pack::{BundleOptions, bundle, config};
 use tracing::{debug, instrument};
@@ -37,7 +38,7 @@ pub fn run(args: PackArgs) -> Result<()> {
         outcome.successful,
         outcome.total,
         outcome.elapsed.as_secs_f64(),
-        errors,
+        fmt_error_count(errors),
         if errors == 1 { "error" } else { "errors" }
     );
     if errors > 0 {
@@ -61,7 +62,12 @@ fn build_once(args: &PackArgs) -> Result<BuildOutcome> {
     let mut failed = 0usize;
     for input in &inputs {
         if let Err(e) = build_input(input, args, &header) {
-            eprintln!("error: {}: {:#}", input.display(), e);
+            eprintln!(
+                "{} {}: {:#}",
+                "error:".if_supports_color(Stream::Stderr, |t| t.red()),
+                input.display(),
+                e
+            );
             failed += 1;
         }
     }
@@ -129,12 +135,21 @@ fn timestamp() -> String {
     Local::now().format("%-I:%M:%S %p").to_string()
 }
 
+fn fmt_error_count(n: usize) -> String {
+    if n > 0 {
+        format!("{}", n.if_supports_color(Stream::Stdout, |n| n.red()))
+    } else {
+        format!("{}", n.if_supports_color(Stream::Stdout, |n| n.green()))
+    }
+}
+
 fn print_watch_status(outcome: &BuildOutcome) {
     let errors = outcome.errors();
+    let ts = format!("[{}]", timestamp());
     println!(
-        "[{}] Found {} {}. Watching for file changes.",
-        timestamp(),
-        errors,
+        "{} Found {} {}. Watching for file changes.",
+        ts.if_supports_color(Stream::Stdout, |t| t.dimmed()),
+        fmt_error_count(errors),
         if errors == 1 { "error" } else { "errors" }
     );
 }
@@ -147,7 +162,7 @@ fn run_watch(args: PackArgs) -> Result<()> {
 
     match build_once(&args) {
         Ok(outcome) => print_watch_status(&outcome),
-        Err(e) => eprintln!("error: {:#}", e),
+        Err(e) => eprintln!("{} {:#}", "error:".if_supports_color(Stream::Stderr, |t| t.red()), e),
     }
 
     let (tx, rx) = mpsc::channel();
@@ -171,7 +186,7 @@ fn run_watch(args: PackArgs) -> Result<()> {
         match rx.recv() {
             Err(_) => break,
             Ok(Err(e)) => {
-                eprintln!("warning: watch error: {}", e);
+                eprintln!("{} watch error: {}", "warning:".if_supports_color(Stream::Stderr, |t| t.yellow()), e);
                 continue;
             }
             Ok(Ok(_)) => {}
@@ -190,10 +205,11 @@ fn run_watch(args: PackArgs) -> Result<()> {
             }
         }
 
-        println!("[{}] File change detected. Packing...", timestamp());
+        let ts = format!("[{}]", timestamp());
+        println!("{} File change detected. Packing...", ts.if_supports_color(Stream::Stdout, |t| t.dimmed()));
         match build_once(&args) {
             Ok(outcome) => print_watch_status(&outcome),
-            Err(e) => eprintln!("error: {:#}", e),
+            Err(e) => eprintln!("{} {:#}", "error:".if_supports_color(Stream::Stderr, |t| t.red()), e),
         }
     }
 
