@@ -514,8 +514,8 @@ pub(crate) fn build_package_json(opts: &ResolvedOptions) -> Value {
             "scripts": {
                 "build": "rbxtsc",
                 "watch": "rbxtsc -w",
-                "build:pack": "rbxex pack -o dist",
-                "watch:pack": "rbxex pack -o dist -w"
+                "pack": "rbxex pack -o dist",
+                "pack:watch": "rbxex pack -o dist -w"
             },
             "keywords": [],
             "author": "",
