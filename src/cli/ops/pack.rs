@@ -162,7 +162,11 @@ fn run_watch(args: PackArgs) -> Result<()> {
 
     match build_once(&args) {
         Ok(outcome) => print_watch_status(&outcome),
-        Err(e) => eprintln!("{} {:#}", "error:".if_supports_color(Stream::Stderr, |t| t.red()), e),
+        Err(e) => eprintln!(
+            "{} {:#}",
+            "error:".if_supports_color(Stream::Stderr, |t| t.red()),
+            e
+        ),
     }
 
     let (tx, rx) = mpsc::channel();
@@ -186,7 +190,11 @@ fn run_watch(args: PackArgs) -> Result<()> {
         match rx.recv() {
             Err(_) => break,
             Ok(Err(e)) => {
-                eprintln!("{} watch error: {}", "warning:".if_supports_color(Stream::Stderr, |t| t.yellow()), e);
+                eprintln!(
+                    "{} watch error: {}",
+                    "warning:".if_supports_color(Stream::Stderr, |t| t.yellow()),
+                    e
+                );
                 continue;
             }
             Ok(Ok(_)) => {}
@@ -206,10 +214,17 @@ fn run_watch(args: PackArgs) -> Result<()> {
         }
 
         let ts = format!("[{}]", timestamp());
-        println!("{} File change detected. Packing...", ts.if_supports_color(Stream::Stdout, |t| t.dimmed()));
+        println!(
+            "{} File change detected. Packing...",
+            ts.if_supports_color(Stream::Stdout, |t| t.dimmed())
+        );
         match build_once(&args) {
             Ok(outcome) => print_watch_status(&outcome),
-            Err(e) => eprintln!("{} {:#}", "error:".if_supports_color(Stream::Stderr, |t| t.red()), e),
+            Err(e) => eprintln!(
+                "{} {:#}",
+                "error:".if_supports_color(Stream::Stderr, |t| t.red()),
+                e
+            ),
         }
     }
 
