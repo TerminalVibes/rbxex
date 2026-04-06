@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fs, path::Path, process::Command};
+use std::{borrow::Cow, fmt, fs, path::Path, process::Command};
 
 use anyhow::{Context, Result, anyhow, bail};
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
@@ -17,6 +17,7 @@ const VSCODE_EXTENSIONS: &str = include_str!("../../../templates/common/vscode.e
 const ROKIT_TOML: &str = include_str!("../../../templates/toolchain/rokit.toml");
 const AFTMAN_TOML: &str = include_str!("../../../templates/toolchain/aftman.toml");
 const FOREMAN_TOML: &str = include_str!("../../../templates/toolchain/foreman.toml");
+const MISE_TOML: &str = include_str!("../../../templates/toolchain/mise.toml");
 
 const PACKAGE_TSCONFIG: &str = include_str!("../../../templates/package/tsconfig.json");
 const PACKAGE_INDEX: &str = include_str!("../../../templates/package/index.ts");
@@ -48,13 +49,102 @@ const DEPS_PRETTIER: &[&str] = &["prettier"];
 // Only needed when both eslint and prettier are enabled
 const DEPS_ESLINT_PRETTIER_BRIDGE: &[&str] = &["eslint-config-prettier", "eslint-plugin-prettier"];
 
+// ── Tool detection ────────────────────────────────────────────────────────────
+
+fn is_installed(cmd: &str) -> bool {
+    Command::new(cmd)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+struct DetectedTools {
+    package_managers: Vec<PackageManager>,
+    rokit: bool,
+    aftman: bool,
+    foreman: bool,
+    mise: bool,
+}
+
+fn detect_tools() -> DetectedTools {
+    let package_managers = [
+        PackageManager::Npm,
+        PackageManager::Pnpm,
+        PackageManager::Yarn,
+    ]
+    .into_iter()
+    .filter(|pm| is_installed(pm.as_cmd()))
+    .collect();
+
+    DetectedTools {
+        package_managers,
+        rokit: is_installed("rokit"),
+        aftman: is_installed("aftman"),
+        foreman: is_installed("foreman"),
+        mise: is_installed("mise"),
+    }
+}
+
+/// Returns all toolchain config formats the user can choose, given what's installed.
+/// Rokit supports aftman.toml and foreman.toml natively, so those are offered
+/// whenever rokit is present — rokit will be used as the actual installer.
+fn available_toolchain_options(d: &DetectedTools) -> Vec<ToolchainManager> {
+    let mut opts = Vec::new();
+    if d.rokit {
+        opts.push(ToolchainManager::Rokit);
+        opts.push(ToolchainManager::Aftman);
+        opts.push(ToolchainManager::Foreman);
+    } else {
+        if d.aftman {
+            opts.push(ToolchainManager::Aftman);
+        }
+        if d.foreman {
+            opts.push(ToolchainManager::Foreman);
+        }
+    }
+    if d.mise {
+        opts.push(ToolchainManager::Mise);
+    }
+    opts
+}
+
+impl PackageManager {
+    fn as_cmd(self) -> &'static str {
+        match self {
+            PackageManager::Npm => "npm",
+            PackageManager::Pnpm => "pnpm",
+            PackageManager::Yarn => "yarn",
+        }
+    }
+}
+
+impl fmt::Display for PackageManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_cmd())
+    }
+}
+
+impl fmt::Display for ToolchainManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            ToolchainManager::Rokit => "rokit",
+            ToolchainManager::Aftman => "aftman",
+            ToolchainManager::Foreman => "foreman",
+            ToolchainManager::Mise => "mise",
+        };
+        f.write_str(s)
+    }
+}
+
 // ── Resolved options ──────────────────────────────────────────────────────────
 
 pub(crate) struct ResolvedOptions {
     pub(crate) name: String,
     pub(crate) template: Template,
     pub(crate) package_manager: PackageManager,
-    pub(crate) toolchain_manager: ToolchainManager,
+    pub(crate) toolchain_manager: Option<ToolchainManager>,
+    pub(crate) rokit_available: bool,
     pub(crate) git: bool,
     pub(crate) eslint: bool,
     pub(crate) prettier: bool,
@@ -80,7 +170,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     }
 
     scaffold_files(&dir, &files)?;
-    run_toolchain_install(&dir, opts.toolchain_manager)?;
+    run_toolchain_install(&dir, opts.toolchain_manager, opts.rokit_available)?;
     run_install(&dir, opts.package_manager)?;
     patch_versions(&dir)?;
 
@@ -101,6 +191,8 @@ pub fn run(args: InitArgs) -> Result<()> {
 fn resolve_options(args: InitArgs, dir: &Path) -> Result<ResolvedOptions> {
     let theme = ColorfulTheme::default();
 
+    let detected = detect_tools();
+
     // Derive the default name from the directory's final component
     let dir_name = dir
         .file_name()
@@ -108,12 +200,82 @@ fn resolve_options(args: InitArgs, dir: &Path) -> Result<ResolvedOptions> {
         .unwrap_or("my-project")
         .to_string();
 
+    // ── Package manager ───────────────────────────────────────────────────────
+
+    let package_manager = if let Some(pm) = args.package_manager {
+        if !detected.package_managers.contains(&pm) {
+            bail!(
+                "`{pm}` is not installed. Install it first or choose a different package manager."
+            );
+        }
+        pm
+    } else if detected.package_managers.is_empty() {
+        bail!("No package manager found. Install one of: npm, pnpm, yarn.");
+    } else if detected.package_managers.len() == 1 {
+        let pm = detected.package_managers[0];
+        println!("Package manager: {pm} (only one detected)");
+        pm
+    } else {
+        // Will be resolved below in interactive / --yes paths
+        // Placeholder — overwritten in both branches
+        PackageManager::Npm
+    };
+
+    // ── Toolchain manager ─────────────────────────────────────────────────────
+
+    let toolchain_options = available_toolchain_options(&detected);
+
+    let toolchain_manager: Option<ToolchainManager> = if args.no_toolchain {
+        None
+    } else if let Some(tm) = args.toolchain_manager {
+        if !toolchain_options.contains(&tm) {
+            bail!(
+                "`{tm}` is not available. Install it first or choose a different toolchain manager.\n\
+                 Alternatively, use --no-toolchain to skip (not recommended)."
+            );
+        }
+        Some(tm)
+    } else if toolchain_options.is_empty() {
+        bail!(
+            "No toolchain manager found. Install one of: rokit (recommended), aftman, foreman, or mise.\n\
+             Alternatively, use --no-toolchain to skip (not recommended)."
+        );
+    } else if toolchain_options.len() == 1 {
+        let tm = toolchain_options[0];
+        println!("Toolchain manager: {tm} (only one available)");
+        Some(tm)
+    } else {
+        // Placeholder — overwritten in both branches below
+        Some(toolchain_options[0])
+    };
+
+    // ── --yes fast path ───────────────────────────────────────────────────────
+
     if args.yes {
+        // Resolve package manager if not already pinned to a single detected one
+        let pm = if args.package_manager.is_some() || detected.package_managers.len() == 1 {
+            package_manager
+        } else {
+            // Pick first (npm > pnpm > yarn, already in priority order)
+            detected.package_managers[0]
+        };
+
+        // Resolve toolchain manager if not already pinned
+        let tm = if args.no_toolchain
+            || args.toolchain_manager.is_some()
+            || toolchain_options.len() == 1
+        {
+            toolchain_manager
+        } else {
+            Some(toolchain_options[0])
+        };
+
         return Ok(ResolvedOptions {
             name: args.name.unwrap_or(dir_name),
             template: args.template.unwrap_or(Template::Script),
-            package_manager: args.package_manager.unwrap_or_default(),
-            toolchain_manager: args.toolchain_manager.unwrap_or_default(),
+            package_manager: pm,
+            toolchain_manager: tm,
+            rokit_available: detected.rokit,
             git: args.git,
             eslint: args.eslint,
             prettier: args.prettier,
@@ -121,7 +283,7 @@ fn resolve_options(args: InitArgs, dir: &Path) -> Result<ResolvedOptions> {
         });
     }
 
-    // Interactive mode — prompt for each option
+    // ── Interactive mode ──────────────────────────────────────────────────────
 
     let name = match args.name {
         Some(n) => n,
@@ -147,38 +309,37 @@ fn resolve_options(args: InitArgs, dir: &Path) -> Result<ResolvedOptions> {
         }
     };
 
-    let package_manager = match args.package_manager {
-        Some(pm) => pm,
-        None => {
-            let idx = Select::with_theme(&theme)
-                .with_prompt("Package manager")
-                .items(&["npm", "pnpm", "yarn"])
-                .default(0)
-                .interact()?;
-            match idx {
-                0 => PackageManager::Npm,
-                1 => PackageManager::Pnpm,
-                _ => PackageManager::Yarn,
-            }
-        }
+    // Resolve package manager interactively if multiple options remain
+    let package_manager = if args.package_manager.is_some() || detected.package_managers.len() == 1
+    {
+        package_manager
+    } else {
+        let labels: Vec<String> = detected
+            .package_managers
+            .iter()
+            .map(|pm| pm.to_string())
+            .collect();
+        let idx = Select::with_theme(&theme)
+            .with_prompt("Package manager")
+            .items(&labels)
+            .default(0)
+            .interact()?;
+        detected.package_managers[idx]
     };
 
-    let toolchain_manager = match args.toolchain_manager {
-        Some(tm) => tm,
-        None => {
+    // Resolve toolchain manager interactively if multiple options remain
+    let toolchain_manager =
+        if args.no_toolchain || args.toolchain_manager.is_some() || toolchain_options.len() == 1 {
+            toolchain_manager
+        } else {
+            let labels: Vec<String> = toolchain_options.iter().map(|tm| tm.to_string()).collect();
             let idx = Select::with_theme(&theme)
                 .with_prompt("Toolchain manager")
-                .items(&["rokit", "aftman", "foreman", "none"])
+                .items(&labels)
                 .default(0)
                 .interact()?;
-            match idx {
-                0 => ToolchainManager::Rokit,
-                1 => ToolchainManager::Aftman,
-                2 => ToolchainManager::Foreman,
-                _ => ToolchainManager::None,
-            }
-        }
-    };
+            Some(toolchain_options[idx])
+        };
 
     // For boolean flags: if user explicitly passed --no-X (value is false), skip prompt.
     // If value is still true (the default), prompt them.
@@ -224,6 +385,7 @@ fn resolve_options(args: InitArgs, dir: &Path) -> Result<ResolvedOptions> {
         template,
         package_manager,
         toolchain_manager,
+        rokit_available: detected.rokit,
         git,
         eslint,
         prettier,
@@ -274,21 +436,26 @@ pub(crate) fn build_file_list(opts: &ResolvedOptions) -> Vec<(&'static str, Cow<
         files.push((".vscode/settings.json", Cow::Borrowed(VSCODE_SETTINGS)));
         files.push((".vscode/extensions.json", Cow::Borrowed(VSCODE_EXTENSIONS)));
     }
+
     let rbxex_version = env!("CARGO_PKG_VERSION");
     match opts.toolchain_manager {
-        ToolchainManager::Rokit => files.push((
+        Some(ToolchainManager::Rokit) => files.push((
             "rokit.toml",
             Cow::Owned(ROKIT_TOML.replace("{{rbxex_version}}", rbxex_version)),
         )),
-        ToolchainManager::Aftman => files.push((
+        Some(ToolchainManager::Aftman) => files.push((
             "aftman.toml",
             Cow::Owned(AFTMAN_TOML.replace("{{rbxex_version}}", rbxex_version)),
         )),
-        ToolchainManager::Foreman => files.push((
+        Some(ToolchainManager::Foreman) => files.push((
             "foreman.toml",
             Cow::Owned(FOREMAN_TOML.replace("{{rbxex_version}}", rbxex_version)),
         )),
-        ToolchainManager::None => {}
+        Some(ToolchainManager::Mise) => files.push((
+            "mise.toml",
+            Cow::Owned(MISE_TOML.replace("{{rbxex_version}}", rbxex_version)),
+        )),
+        None => {}
     }
 
     files
@@ -383,33 +550,48 @@ pub(crate) fn build_package_json(opts: &ResolvedOptions) -> Value {
 // ── Package manager install ───────────────────────────────────────────────────
 
 fn run_install(dir: &Path, pm: PackageManager) -> Result<()> {
-    let (cmd, args): (&str, &[&str]) = match pm {
-        PackageManager::Npm => ("npm", &["install"]),
-        PackageManager::Pnpm => ("pnpm", &["install"]),
-        PackageManager::Yarn => ("yarn", &["install"]),
-    };
-
-    run_command_silently(dir, cmd, args)
+    run_command_silently(dir, pm.as_cmd(), &["install"])
 }
 
 // ── Toolchain manager install ─────────────────────────────────────────────────
 
-fn run_toolchain_install(dir: &Path, manager: ToolchainManager) -> Result<()> {
-    let Some((cmd, args)) = toolchain_install_command(manager) else {
+fn run_toolchain_install(
+    dir: &Path,
+    manager: Option<ToolchainManager>,
+    rokit_available: bool,
+) -> Result<()> {
+    let Some(manager) = manager else {
         return Ok(());
     };
 
-    run_command_silently(dir, cmd, args)
+    for (cmd, args) in toolchain_install_commands(manager, rokit_available) {
+        run_command_silently(dir, cmd, args)?;
+    }
+
+    Ok(())
 }
 
-fn toolchain_install_command(
+fn toolchain_install_commands(
     manager: ToolchainManager,
-) -> Option<(&'static str, &'static [&'static str])> {
+    rokit_available: bool,
+) -> Vec<(&'static str, &'static [&'static str])> {
     match manager {
-        ToolchainManager::Rokit => Some(("rokit", &["install"])),
-        ToolchainManager::Aftman => Some(("aftman", &["install"])),
-        ToolchainManager::Foreman => Some(("foreman", &["install"])),
-        ToolchainManager::None => None,
+        ToolchainManager::Rokit => vec![("rokit", &["install"] as &[&str])],
+        ToolchainManager::Aftman => {
+            if rokit_available {
+                vec![("rokit", &["install"])]
+            } else {
+                vec![("aftman", &["install"])]
+            }
+        }
+        ToolchainManager::Foreman => {
+            if rokit_available {
+                vec![("rokit", &["install"])]
+            } else {
+                vec![("foreman", &["install"])]
+            }
+        }
+        ToolchainManager::Mise => vec![("mise", &["trust"]), ("mise", &["install"])],
     }
 }
 

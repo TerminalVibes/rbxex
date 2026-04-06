@@ -47,18 +47,21 @@ pub struct InitArgs {
     #[arg(long = "toolchain-manager", value_enum)]
     pub toolchain_manager: Option<ToolchainManager>,
 
+    /// Skip toolchain manager setup entirely (not recommended — reduces project portability)
+    #[arg(long = "no-toolchain", conflicts_with = "toolchain_manager")]
+    pub no_toolchain: bool,
+
     /// Selects the Node package manager to use
     #[arg(long = "package-manager", value_enum)]
     pub package_manager: Option<PackageManager>,
 }
 
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum ToolchainManager {
     Foreman,
     Aftman,
-    #[default]
     Rokit,
-    None,
+    Mise,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]

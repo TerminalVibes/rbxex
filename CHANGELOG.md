@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `init` command now supports `mise` as a toolchain manager and adds `--no-toolchain` as an explicit escape hatch
+
+### Changed
+
+- `init` command now only offers installed package managers and toolchain managers
+- `init` script template now generates `pack` and `pack:watch` npm scripts instead of `build:pack` and `watch:pack`
+
+### Fixed
+
+- `pack` command now names Rojo project outputs from the project's `name` field instead of the `.project.json` filename; raw `.rbxm` inputs still use the model filename
+
 ## [0.2.0] - 2026-04-06
 
 ### Changed

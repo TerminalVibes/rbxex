@@ -14,7 +14,8 @@ fn options(template: Template) -> ResolvedOptions {
         name: "demo".to_string(),
         template,
         package_manager: PackageManager::Npm,
-        toolchain_manager: ToolchainManager::Rokit,
+        toolchain_manager: Some(ToolchainManager::Rokit),
+        rokit_available: false,
         git: true,
         eslint: true,
         prettier: true,
@@ -92,7 +93,7 @@ fn file_list_rokit_toolchain_contains_rokit_toml() {
 #[test]
 fn file_list_no_toolchain_omits_all_toml_files() {
     let mut opts = options(Template::Script);
-    opts.toolchain_manager = ToolchainManager::None;
+    opts.toolchain_manager = None;
 
     let files = build_file_list(&opts);
     let names = file_names(&files);
@@ -100,6 +101,7 @@ fn file_list_no_toolchain_omits_all_toml_files() {
     assert!(!names.contains(&"rokit.toml"));
     assert!(!names.contains(&"aftman.toml"));
     assert!(!names.contains(&"foreman.toml"));
+    assert!(!names.contains(&"mise.toml"));
 }
 
 #[test]
