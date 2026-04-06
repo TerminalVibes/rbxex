@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-06
+
 ### Changed
 
 - `pack` command now colorizes errors, warnings, timestamps, and error counts when the terminal supports color
@@ -46,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--no-git`, `--no-eslint`, `--no-prettier`, `--no-vscode` flags opt out of individual scaffolded features
 - `--verbose` global flag for detailed diagnostic output
 
-[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TerminalVibes/rbxex/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/TerminalVibes/rbxex/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/TerminalVibes/rbxex/releases/tag/v0.1.0
