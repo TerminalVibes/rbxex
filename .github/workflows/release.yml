@@ -27,11 +27,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create ${{ github.ref_name }} \
-            --draft \
-            --verify-tag \
-            --title "${{ github.ref_name }}" \
-            --notes-file notes.md
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release edit "${{ github.ref_name }}" \
+              --draft \
+              --title "${{ github.ref_name }}" \
+              --notes-file notes.md
+          else
+            gh release create ${{ github.ref_name }} \
+              --draft \
+              --verify-tag \
+              --title "${{ github.ref_name }}" \
+              --notes-file notes.md
+          fi
 
   build:
     name: Build (${{ matrix.label }})
@@ -92,7 +99,7 @@ jobs:
             cp "target/${{ matrix.target }}/release/${BIN}" staging/
             cd staging && zip "../${ARTIFACT}" *
           fi
-          gh release upload "${{ github.ref_name }}" "../${ARTIFACT}"
+          gh release upload "${{ github.ref_name }}" "../${ARTIFACT}" --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifact.outputs.name }}
@@ -105,4 +112,3 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ matrix.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-
