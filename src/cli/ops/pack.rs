@@ -4,23 +4,49 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use chrono::Local;
 use notify::{RecursiveMode, Watcher};
 use rbx_dom_weak::WeakDom;
 use rbxex::core::pack::{BundleOptions, bundle, config};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, instrument};
 
 use crate::cli::commands::pack::{CliTarget, PackArgs};
 use crate::cli::utils::rojo::{build_rojo, is_rojo_project, register_project_watches};
+
+struct BuildOutcome {
+    successful: usize,
+    total: usize,
+    elapsed: Duration,
+}
+
+impl BuildOutcome {
+    fn errors(&self) -> usize {
+        self.total - self.successful
+    }
+}
 
 #[instrument(skip_all, err)]
 pub fn run(args: PackArgs) -> Result<()> {
     if args.watch {
         return run_watch(args);
     }
-    build_once(&args)
+    let outcome = build_once(&args)?;
+    let errors = outcome.errors();
+    println!(
+        "Packed {}/{} targets successfully in {:.2}s with {} {}.",
+        outcome.successful,
+        outcome.total,
+        outcome.elapsed.as_secs_f64(),
+        errors,
+        if errors == 1 { "error" } else { "errors" }
+    );
+    if errors > 0 {
+        std::process::exit(1);
+    }
+    Ok(())
 }
 
-fn build_once(args: &PackArgs) -> Result<()> {
+fn build_once(args: &PackArgs) -> Result<BuildOutcome> {
     let start_time = Instant::now();
 
     let inputs = resolve_inputs(&args.input)?;
@@ -35,22 +61,24 @@ fn build_once(args: &PackArgs) -> Result<()> {
     let mut failed = 0usize;
     for input in &inputs {
         if let Err(e) = build_input(input, args, &header) {
-            error!(path = ?input, "Build failed: {:#}", e);
+            eprintln!("error: {}: {:#}", input.display(), e);
             failed += 1;
         }
     }
 
-    if failed > 0 {
-        bail!("{} of {} input(s) failed to build", failed, inputs.len());
-    }
+    let total = inputs.len() * args.targets.len();
+    let successful = (inputs.len() - failed) * args.targets.len();
 
-    info!(elapsed = ?start_time.elapsed(), "Built all targets");
-    Ok(())
+    Ok(BuildOutcome {
+        successful,
+        total,
+        elapsed: start_time.elapsed(),
+    })
 }
 
 fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> Result<()> {
     let temp_rbxm = if is_rojo_project(input_path) {
-        info!(path = ?input_path, "Building Rojo project...");
+        debug!(path = ?input_path, "Building Rojo project");
         Some(build_rojo(input_path)?)
     } else {
         None
@@ -58,7 +86,7 @@ fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> R
 
     let model_path = temp_rbxm.as_deref().unwrap_or(input_path);
 
-    info!(path = ?model_path, "Loading model...");
+    debug!(path = ?model_path, "Loading model");
     let dom = load_model(model_path)?;
 
     if let Some(ref path) = temp_rbxm {
@@ -72,14 +100,14 @@ fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> R
         .unwrap_or("bundle");
 
     for &target in &args.targets {
-        let span = tracing::info_span!("pack_target", ?target);
+        let span = tracing::debug_span!("pack_target", ?target);
         let _enter = span.enter();
 
         let (suffix, options) = configure_target(target);
         let filename = format!("{}.{}.lua", stem, suffix);
         let output_path = args.out_dir.join(&filename);
 
-        info!("Packing target...");
+        debug!("Packing target");
 
         let mut source =
             bundle(&dom, options).with_context(|| format!("Failed to pack target {:?}", target))?;
@@ -91,10 +119,24 @@ fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> R
         fs::write(&output_path, source)
             .with_context(|| format!("Failed to write output to {}", output_path.display()))?;
 
-        info!(%filename, "Target packed successfully");
+        debug!(%filename, "Target packed");
     }
 
     Ok(())
+}
+
+fn timestamp() -> String {
+    Local::now().format("%-I:%M:%S %p").to_string()
+}
+
+fn print_watch_status(outcome: &BuildOutcome) {
+    let errors = outcome.errors();
+    println!(
+        "[{}] Found {} {}. Watching for file changes.",
+        timestamp(),
+        errors,
+        if errors == 1 { "error" } else { "errors" }
+    );
 }
 
 fn run_watch(args: PackArgs) -> Result<()> {
@@ -103,9 +145,9 @@ fn run_watch(args: PackArgs) -> Result<()> {
         .canonicalize()
         .context("Failed to resolve input path")?;
 
-    info!("Starting watch mode");
-    if let Err(e) = build_once(&args) {
-        error!("Initial build failed: {:#}", e);
+    match build_once(&args) {
+        Ok(outcome) => print_watch_status(&outcome),
+        Err(e) => eprintln!("error: {:#}", e),
     }
 
     let (tx, rx) = mpsc::channel();
@@ -114,16 +156,13 @@ fn run_watch(args: PackArgs) -> Result<()> {
     })?;
 
     if input.is_dir() {
-        // watch the directory non-recursively (catches new project files being added)
         watcher.watch(&input, RecursiveMode::NonRecursive)?;
-        // also watch all $path dirs from each found project file
         for project_path in resolve_inputs(&input)? {
             register_project_watches(&mut watcher, &project_path)?;
         }
     } else if is_rojo_project(&input) {
         register_project_watches(&mut watcher, &input)?;
     } else {
-        // .rbxm — just watch the file itself
         watcher.watch(&input, RecursiveMode::NonRecursive)?;
         debug!(?input, "Watching .rbxm file");
     }
@@ -132,7 +171,7 @@ fn run_watch(args: PackArgs) -> Result<()> {
         match rx.recv() {
             Err(_) => break,
             Ok(Err(e)) => {
-                warn!("Watch error: {}", e);
+                eprintln!("warning: watch error: {}", e);
                 continue;
             }
             Ok(Ok(_)) => {}
@@ -151,9 +190,10 @@ fn run_watch(args: PackArgs) -> Result<()> {
             }
         }
 
-        info!("Change detected, rebuilding...");
-        if let Err(e) = build_once(&args) {
-            error!("Build failed: {:#}", e);
+        println!("[{}] File change detected. Packing...", timestamp());
+        match build_once(&args) {
+            Ok(outcome) => print_watch_status(&outcome),
+            Err(e) => eprintln!("error: {:#}", e),
         }
     }
 
