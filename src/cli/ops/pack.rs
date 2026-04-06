@@ -9,6 +9,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Stream};
 use rbx_dom_weak::WeakDom;
 use rbxex::core::pack::{BundleOptions, bundle, config};
+use serde_json::Value;
 use tracing::{debug, instrument};
 
 use crate::cli::commands::pack::{CliTarget, PackArgs};
@@ -100,10 +101,7 @@ fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> R
         let _ = fs::remove_file(path);
     }
 
-    let stem = input_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("bundle");
+    let stem = output_stem(input_path)?;
 
     for &target in &args.targets {
         let span = tracing::debug_span!("pack_target", ?target);
@@ -129,6 +127,38 @@ fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> R
     }
 
     Ok(())
+}
+
+pub(crate) fn output_stem(input_path: &Path) -> Result<String> {
+    if is_rojo_project(input_path) {
+        return rojo_project_name(input_path);
+    }
+
+    Ok(input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("bundle")
+        .to_string())
+}
+
+fn rojo_project_name(path: &Path) -> Result<String> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read project file {}", path.display()))?;
+    let project: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("Failed to parse project file {}", path.display()))?;
+
+    let Some(name) = project.get("name").and_then(Value::as_str) else {
+        bail!(
+            "Project file {} is missing a string `name` field",
+            path.display()
+        );
+    };
+
+    if name.trim().is_empty() {
+        bail!("Project file {} has an empty `name` field", path.display());
+    }
+
+    Ok(name.to_string())
 }
 
 fn timestamp() -> String {

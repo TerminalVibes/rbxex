@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 
 use crate::cli::commands::pack::{CliTarget, PackArgs};
-use crate::cli::ops::pack::{configure_target, load_header, resolve_inputs};
+use crate::cli::ops::pack::{configure_target, load_header, output_stem, resolve_inputs};
 
 use super::{fixture_path, make_dom, write_rbxm};
 
@@ -128,5 +128,36 @@ fn load_header_existing_file_returns_content() {
 fn load_header_missing_file_returns_err() {
     let dir = tempdir().unwrap();
     let result = load_header(&pack_args(Some(dir.path().join("missing.lua"))));
+    assert!(result.is_err());
+}
+
+#[test]
+fn output_stem_uses_rojo_project_name_field() {
+    let project_path = fixture_path("project/default.project.json");
+
+    let stem = output_stem(&project_path).unwrap();
+
+    assert_eq!(stem, "FixtureProject");
+}
+
+#[test]
+fn output_stem_uses_filename_for_rbxm_input() {
+    let dir = tempdir().unwrap();
+    let dom = make_dom(&[("Main", "ModuleScript", "return 42")]);
+    let model_path = write_rbxm(dir.path(), "model", &dom);
+
+    let stem = output_stem(&model_path).unwrap();
+
+    assert_eq!(stem, "model");
+}
+
+#[test]
+fn output_stem_errors_when_rojo_project_name_is_missing() {
+    let dir = tempdir().unwrap();
+    let project_path = dir.path().join("broken.project.json");
+    fs::write(&project_path, "{\"tree\":{}}").unwrap();
+
+    let result = output_stem(&project_path);
+
     assert!(result.is_err());
 }
