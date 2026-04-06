@@ -5,7 +5,8 @@ use tempfile::tempdir;
 
 use crate::cli::commands::init::{PackageManager, Template, ToolchainManager};
 use crate::cli::ops::init::{
-    ResolvedOptions, build_file_list, build_package_json, check_conflicts, scaffold_files,
+    ResolvedOptions, build_file_list, build_package_json, check_conflicts, format_command_failure,
+    scaffold_files,
 };
 
 fn options(template: Template) -> ResolvedOptions {
@@ -183,5 +184,29 @@ fn scaffold_files_creates_nested_dirs_and_writes_content() {
     assert_eq!(
         fs::read_to_string(dir.path().join(".vscode/settings.json")).unwrap(),
         file_contents(&files, ".vscode/settings.json")
+    );
+}
+
+#[test]
+fn format_command_failure_includes_both_streams_when_present() {
+    let rendered = format_command_failure(
+        "npm install",
+        Some(1),
+        b"installing dependencies\n",
+        b"npm ERR! dependency conflict\n",
+    );
+
+    assert!(rendered.contains("`npm install` failed with exit code 1"));
+    assert!(rendered.contains("stderr:\nnpm ERR! dependency conflict"));
+    assert!(rendered.contains("stdout:\ninstalling dependencies"));
+}
+
+#[test]
+fn format_command_failure_ignores_empty_streams() {
+    let rendered = format_command_failure("git init", Some(128), b"\n", b"fatal: not a repo\n");
+
+    assert_eq!(
+        rendered,
+        "`git init` failed with exit code 128:\nfatal: not a repo"
     );
 }

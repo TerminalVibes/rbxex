@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `pack` command now colorizes errors, warnings, timestamps, and error counts when the terminal supports color
 
+### Fixed
+
+- `init` command now suppresses package manager and git command chatter on success, and reports subprocess failures through the CLI's styled error output
+
 ## [0.1.1] - 2026-04-06
 
 ### Changed

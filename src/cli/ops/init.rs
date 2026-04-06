@@ -87,7 +87,11 @@ pub fn run(args: InitArgs) -> Result<()> {
         run_git_init(&dir)?;
     }
 
-    println!("Initialized project \"{}\" at {}", opts.name, dir.display());
+    println!(
+        "Successfully initialized project \"{}\" at {}",
+        opts.name,
+        dir.display()
+    );
     Ok(())
 }
 
@@ -384,17 +388,7 @@ fn run_install(dir: &Path, pm: PackageManager) -> Result<()> {
         PackageManager::Yarn => ("yarn", &["install"]),
     };
 
-    let status = Command::new(cmd)
-        .args(args)
-        .current_dir(dir)
-        .status()
-        .with_context(|| format!("Failed to run `{} install`. Is it installed?", cmd))?;
-
-    if !status.success() {
-        bail!("`{} install` failed", cmd);
-    }
-
-    Ok(())
+    run_command_silently(dir, cmd, args)
 }
 
 // ── Version patching ──────────────────────────────────────────────────────────
@@ -445,20 +439,76 @@ fn read_installed_version(dir: &Path, pkg_name: &str) -> Option<String> {
 // ── Git ───────────────────────────────────────────────────────────────────────
 
 pub(crate) fn run_git_init(dir: &Path) -> Result<()> {
-    let status = Command::new("git")
-        .args(["init"])
-        .current_dir(dir)
-        .status()
-        .context("Failed to run `git init`. Is git installed?")?;
+    run_command_silently(dir, "git", &["init"])
+}
 
-    if !status.success() {
-        bail!("`git init` failed");
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn run_command_silently(dir: &Path, cmd: &str, args: &[&str]) -> Result<()> {
+    let command = format_command(cmd, args);
+    let output = Command::new(cmd)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .with_context(|| format!("Failed to run `{command}`. Is `{cmd}` installed?"))?;
+
+    if !output.status.success() {
+        bail!(
+            "{}",
+            format_command_failure(
+                &command,
+                output.status.code(),
+                &output.stdout,
+                &output.stderr
+            )
+        );
     }
 
     Ok(())
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+fn format_command(cmd: &str, args: &[&str]) -> String {
+    if args.is_empty() {
+        cmd.to_string()
+    } else {
+        format!("{cmd} {}", args.join(" "))
+    }
+}
+
+pub(crate) fn format_command_failure(
+    command: &str,
+    exit_code: Option<i32>,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> String {
+    let summary = match exit_code {
+        Some(code) => format!("`{command}` failed with exit code {code}"),
+        None => format!("`{command}` failed"),
+    };
+
+    let stdout = normalize_command_output(stdout);
+    let stderr = normalize_command_output(stderr);
+
+    match (stderr, stdout) {
+        (Some(stderr), Some(stdout)) => {
+            format!("{summary}:\nstderr:\n{stderr}\n\nstdout:\n{stdout}")
+        }
+        (Some(stderr), None) => format!("{summary}:\n{stderr}"),
+        (None, Some(stdout)) => format!("{summary}:\n{stdout}"),
+        (None, None) => summary,
+    }
+}
+
+fn normalize_command_output(bytes: &[u8]) -> Option<String> {
+    let output = String::from_utf8_lossy(bytes);
+    let trimmed = output.trim();
+
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
 
 fn write_file(dir: &Path, relative: &str, contents: &str) -> Result<()> {
     let path = dir.join(relative);
