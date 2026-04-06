@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -20,16 +20,19 @@ pub fn build_rojo(project_path: &Path) -> Result<PathBuf> {
 
     debug!(output = ?temp_path, "Executing rojo build");
 
-    let status = Command::new("rojo")
+    let output = Command::new("rojo")
         .arg("build")
         .arg(project_path)
         .arg("--output")
         .arg(&temp_path)
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
         .context("Failed to execute rojo build. Is rojo installed?")?;
 
-    if !status.success() {
-        bail!("Rojo build failed");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Rojo build failed:\n{}", stderr.trim_end());
     }
 
     Ok(temp_path)
