@@ -80,6 +80,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     }
 
     scaffold_files(&dir, &files)?;
+    run_toolchain_install(&dir, opts.toolchain_manager)?;
     run_install(&dir, opts.package_manager)?;
     patch_versions(&dir)?;
 
@@ -389,6 +390,27 @@ fn run_install(dir: &Path, pm: PackageManager) -> Result<()> {
     };
 
     run_command_silently(dir, cmd, args)
+}
+
+// ── Toolchain manager install ─────────────────────────────────────────────────
+
+fn run_toolchain_install(dir: &Path, manager: ToolchainManager) -> Result<()> {
+    let Some((cmd, args)) = toolchain_install_command(manager) else {
+        return Ok(());
+    };
+
+    run_command_silently(dir, cmd, args)
+}
+
+fn toolchain_install_command(
+    manager: ToolchainManager,
+) -> Option<(&'static str, &'static [&'static str])> {
+    match manager {
+        ToolchainManager::Rokit => Some(("rokit", &["install"])),
+        ToolchainManager::Aftman => Some(("aftman", &["install"])),
+        ToolchainManager::Foreman => Some(("foreman", &["install"])),
+        ToolchainManager::None => None,
+    }
 }
 
 // ── Version patching ──────────────────────────────────────────────────────────

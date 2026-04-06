@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pack` command now colorizes errors, warnings, timestamps, and error counts when the terminal supports color
 - `pack --watch` now inserts a blank line after each watch status line to make rebuild cycles easier to scan
 - `init` command now pins generated Rojo toolchain entries to `7.6.1`
+- `init` command now runs the selected toolchain manager's install command after writing its config so the scaffolded CLIs are fetched immediately
 
 ### Fixed
 
