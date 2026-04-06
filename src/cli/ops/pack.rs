@@ -147,7 +147,7 @@ fn print_watch_status(outcome: &BuildOutcome) {
     let errors = outcome.errors();
     let ts = format!("[{}]", timestamp());
     println!(
-        "{} Found {} {}. Watching for file changes.",
+        "{} Found {} {}. Watching for file changes.\n",
         ts.if_supports_color(Stream::Stdout, |t| t.dimmed()),
         fmt_error_count(errors),
         if errors == 1 { "error" } else { "errors" }

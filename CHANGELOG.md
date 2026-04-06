@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `pack` command now colorizes errors, warnings, timestamps, and error counts when the terminal supports color
+- `pack --watch` now inserts a blank line after each watch status line to make rebuild cycles easier to scan
 
 ### Fixed
 
