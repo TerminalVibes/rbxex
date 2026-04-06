@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-06
+
+### Changed
+
+- `pack` command now prints a single summary line (`Packed X/Y targets successfully in Xs with N errors.`) instead of verbose per-step log output
+- `pack --watch` now shows tsc-style timestamped status lines (`[H:MM:SS AM/PM] Found N errors. Watching for file changes.`) instead of raw log lines
+
 ## [0.1.0] - 2026-04-05
 
 ### Added
@@ -28,5 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--no-git`, `--no-eslint`, `--no-prettier`, `--no-vscode` flags opt out of individual scaffolded features
 - `--verbose` global flag for detailed diagnostic output
 
-[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/TerminalVibes/rbxex/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/TerminalVibes/rbxex/releases/tag/v0.1.0
