@@ -1,4 +1,16 @@
-use std::{borrow::Cow, fmt, fs, path::Path, process::Command};
+use std::{
+    borrow::Cow,
+    fmt, fs,
+    io::{self, IsTerminal, Write},
+    path::Path,
+    process::Command,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
@@ -169,20 +181,42 @@ pub fn run(args: InitArgs) -> Result<()> {
         check_conflicts(&dir, &files)?;
     }
 
-    scaffold_files(&dir, &files)?;
-    run_toolchain_install(&dir, opts.toolchain_manager, opts.rokit_available)?;
-    run_install(&dir, opts.package_manager)?;
-    patch_versions(&dir)?;
-
-    if opts.git {
-        run_git_init(&dir)?;
-    }
+    run_final_setup(&dir, &opts, &files)?;
 
     println!(
         "Successfully initialized project \"{}\" at {}",
         opts.name,
         dir.display()
     );
+    Ok(())
+}
+
+fn run_final_setup(dir: &Path, opts: &ResolvedOptions, files: &[(&str, Cow<str>)]) -> Result<()> {
+    let spinner = SetupSpinner::start("Creating project files...");
+
+    scaffold_files(dir, files)?;
+
+    if opts.toolchain_manager.is_some() {
+        spinner.set_message("Installing toolchain tools...");
+        run_toolchain_install(dir, opts.toolchain_manager, opts.rokit_available)?;
+    }
+
+    spinner.set_message(format!(
+        "Installing {} dependencies...",
+        opts.package_manager
+    ));
+    run_install(dir, opts.package_manager)?;
+
+    spinner.set_message("Recording installed dependency versions...");
+    patch_versions(dir)?;
+
+    if opts.git {
+        spinner.set_message("Initializing git repository...");
+        run_git_init(dir)?;
+    }
+
+    spinner.finish();
+
     Ok(())
 }
 
@@ -644,6 +678,99 @@ fn read_installed_version(dir: &Path, pkg_name: &str) -> Option<String> {
 
 pub(crate) fn run_git_init(dir: &Path) -> Result<()> {
     run_command_silently(dir, "git", &["init"])
+}
+
+// ── Setup progress ───────────────────────────────────────────────────────────
+
+struct SpinnerState {
+    running: AtomicBool,
+    message: Mutex<String>,
+}
+
+struct SetupSpinner {
+    state: Option<Arc<SpinnerState>>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl SetupSpinner {
+    fn start(message: impl Into<String>) -> Self {
+        if !io::stderr().is_terminal() {
+            return Self {
+                state: None,
+                handle: None,
+            };
+        }
+
+        let state = Arc::new(SpinnerState {
+            running: AtomicBool::new(true),
+            message: Mutex::new(message.into()),
+        });
+
+        let thread_state = Arc::clone(&state);
+        let handle = thread::spawn(move || run_spinner(thread_state));
+
+        Self {
+            state: Some(state),
+            handle: Some(handle),
+        }
+    }
+
+    fn set_message(&self, message: impl Into<String>) {
+        let Some(state) = &self.state else {
+            return;
+        };
+
+        if let Ok(mut current) = state.message.lock() {
+            *current = message.into();
+        }
+    }
+
+    fn finish(mut self) {
+        self.stop();
+    }
+
+    fn stop(&mut self) {
+        if let Some(state) = self.state.take() {
+            state.running.store(false, Ordering::Relaxed);
+        }
+
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for SetupSpinner {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn run_spinner(state: Arc<SpinnerState>) {
+    let frames = ["-", "\\", "|", "/"];
+    let mut frame = 0;
+    let mut previous_len: usize = 0;
+    let mut stderr = io::stderr();
+
+    while state.running.load(Ordering::Relaxed) {
+        let message = state
+            .message
+            .lock()
+            .map(|message| message.clone())
+            .unwrap_or_else(|_| "Setting up project...".to_string());
+        let line = format!("{} {}", frames[frame % frames.len()], message);
+        let padding = " ".repeat(previous_len.saturating_sub(line.len()));
+
+        let _ = write!(stderr, "\r{line}{padding}");
+        let _ = stderr.flush();
+
+        previous_len = line.len();
+        frame += 1;
+        thread::sleep(Duration::from_millis(80));
+    }
+
+    let _ = write!(stderr, "\r{}\r", " ".repeat(previous_len));
+    let _ = stderr.flush();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
