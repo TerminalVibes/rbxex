@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -181,12 +181,12 @@ pub fn run(args: InitArgs) -> Result<()> {
         check_conflicts(&dir, &files)?;
     }
 
+    let start_time = Instant::now();
     run_final_setup(&dir, &opts, &files)?;
 
     println!(
-        "Successfully initialized project \"{}\" at {}",
-        opts.name,
-        dir.display()
+        "Successfully initialized project in {:.2}s.",
+        start_time.elapsed().as_secs_f64()
     );
     Ok(())
 }
