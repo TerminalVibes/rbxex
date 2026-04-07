@@ -20,7 +20,7 @@ Compiles a Roblox project into a bundled Lua script.
 ```sh
 rbxex pack                        # pack default.project.json in current dir
 rbxex pack path/to/project        # pack a specific .project.json or .rbxm
-rbxex pack -o dist                # write output to dist/
+rbxex pack -o out                 # override output directory (defaults to dist/)
 rbxex pack -t rel                 # release target (minified)
 rbxex pack -w                     # watch mode
 ```

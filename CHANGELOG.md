@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `init` command now shows progress while it creates files and runs final setup commands
 - `init` command now reports elapsed setup time after initialization succeeds
+- `pack` command now defaults generated bundles to `dist` when `-o`/`--out-dir` is omitted
 
 ## [0.3.0] - 2026-04-06
 

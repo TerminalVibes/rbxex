@@ -31,7 +31,12 @@ pub struct PackArgs {
     pub targets: Vec<CliTarget>,
 
     /// Output directory for generated bundles
-    #[arg(short = 'o', long = "out-dir", value_name = "DIR", required = true)]
+    #[arg(
+        short = 'o',
+        long = "out-dir",
+        value_name = "DIR",
+        default_value = "dist"
+    )]
     pub out_dir: PathBuf,
 
     /// Path to a custom header file
