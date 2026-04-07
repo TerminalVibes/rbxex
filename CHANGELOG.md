@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `init` command now shows progress while it creates files and runs final setup commands
 - `init` command now reports elapsed setup time after initialization succeeds
+- `pack` command now uses more conventional `--release`, `--all`, and `--compat` flags for simpler build selection, with `-t`/`--target` kept as an advanced explicit target mode
+- `pack` command now defaults to building only the debug bundle when no build selection flags are provided
 - `pack` command now defaults generated bundles to `dist` when `-o`/`--out-dir` is omitted
 
 ## [0.3.0] - 2026-04-06
@@ -55,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pack` command to compile a Roblox/Luau project into a bundled Lua script
   - Accepts a directory, `.rbxm` file, or Rojo `.project.json` as input; defaults to the current directory
   - `-t`/`--target` flag selects one or more build targets (comma-separated); defaults to `dev,rel`
-  - Four build targets: `dev` (debug with source maps), `dev-compat` (debug + Lua 5.1 compatibility), `rel` (minified), `rel-compat` (minified + Lua 5.1 compatibility)
+  - Four build targets: `dev` (debug with source maps), `dev-compat` (debug + older Luau compatibility transforms), `rel` (minified), `rel-compat` (minified + older Luau compatibility transforms)
   - `-o`/`--out-dir` flag specifies the output directory for generated bundles
   - `--header` flag prepends a custom header file to every bundle output
   - `-w`/`--watch` flag watches for file changes and rebuilds automatically

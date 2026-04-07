@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use clap::Parser;
 use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 
@@ -12,7 +13,10 @@ use super::{fixture_path, make_dom, write_rbxm};
 fn pack_args(header: Option<PathBuf>) -> PackArgs {
     PackArgs {
         input: PathBuf::from("."),
-        targets: vec![CliTarget::Dev],
+        release: false,
+        all: false,
+        compat: false,
+        targets: Vec::new(),
         out_dir: PathBuf::from("out"),
         header,
         watch: false,
@@ -23,6 +27,61 @@ fn sorted_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut paths = paths;
     paths.sort();
     paths
+}
+
+#[test]
+fn selected_targets_match_profile_flags() {
+    let cases: &[(&[&str], &[CliTarget])] = &[
+        (&["pack"], &[CliTarget::Dev]),
+        (&["pack", "--release"], &[CliTarget::Rel]),
+        (&["pack", "--all"], &[CliTarget::Dev, CliTarget::Rel]),
+        (
+            &["pack", "--compat"],
+            &[CliTarget::Dev, CliTarget::DevCompat],
+        ),
+        (
+            &["pack", "--release", "--compat"],
+            &[CliTarget::Rel, CliTarget::RelCompat],
+        ),
+        (
+            &["pack", "--all", "--compat"],
+            &[
+                CliTarget::Dev,
+                CliTarget::DevCompat,
+                CliTarget::Rel,
+                CliTarget::RelCompat,
+            ],
+        ),
+    ];
+
+    for (argv, expected) in cases {
+        let args = PackArgs::parse_from(*argv);
+        assert_eq!(&args.selected_targets(), expected, "{argv:?}");
+    }
+}
+
+#[test]
+fn selected_targets_can_use_advanced_target_mode() {
+    let args = PackArgs::parse_from(["pack", "--target", "rel,rel-compat"]);
+
+    assert_eq!(
+        args.selected_targets(),
+        vec![CliTarget::Rel, CliTarget::RelCompat]
+    );
+}
+
+#[test]
+fn release_conflicts_with_all() {
+    let result = PackArgs::try_parse_from(["pack", "--release", "--all"]);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn target_mode_conflicts_with_profile_flags() {
+    let result = PackArgs::try_parse_from(["pack", "--target", "rel", "--compat"]);
+
+    assert!(result.is_err());
 }
 
 #[test]

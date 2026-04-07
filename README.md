@@ -21,11 +21,12 @@ Compiles a Roblox project into a bundled Lua script.
 rbxex pack                        # pack default.project.json in current dir
 rbxex pack path/to/project        # pack a specific .project.json or .rbxm
 rbxex pack -o out                 # override output directory (defaults to dist/)
-rbxex pack -t rel                 # release target (minified)
+rbxex pack --release              # release bundle (minified)
+rbxex pack --all --compat         # debug/release bundles plus older Luau variants
 rbxex pack -w                     # watch mode
 ```
 
-**Targets:** `dev` (default), `dev-compat`, `rel`, `rel-compat`
+**Build selection:** `pack` builds debug by default. Use `--release`, `--all`, and `--compat` to choose other bundle variants. For manual target selection, use advanced `-t`/`--target`.
 
 ### `rbxex init`
 

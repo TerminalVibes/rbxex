@@ -59,10 +59,11 @@ fn build_once(args: &PackArgs) -> Result<BuildOutcome> {
     fs::create_dir_all(&args.out_dir).context("Failed to create output directory")?;
 
     let header = load_header(args)?;
+    let targets = args.selected_targets();
 
     let mut failed = 0usize;
     for input in &inputs {
-        if let Err(e) = build_input(input, args, &header) {
+        if let Err(e) = build_input(input, args, &header, &targets) {
             eprintln!(
                 "{} {}: {:#}",
                 "error:".if_supports_color(Stream::Stderr, |t| t.red()),
@@ -73,8 +74,8 @@ fn build_once(args: &PackArgs) -> Result<BuildOutcome> {
         }
     }
 
-    let total = inputs.len() * args.targets.len();
-    let successful = (inputs.len() - failed) * args.targets.len();
+    let total = inputs.len() * targets.len();
+    let successful = (inputs.len() - failed) * targets.len();
 
     Ok(BuildOutcome {
         successful,
@@ -83,7 +84,12 @@ fn build_once(args: &PackArgs) -> Result<BuildOutcome> {
     })
 }
 
-fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> Result<()> {
+fn build_input(
+    input_path: &Path,
+    args: &PackArgs,
+    header: &Option<String>,
+    targets: &[CliTarget],
+) -> Result<()> {
     let temp_rbxm = if is_rojo_project(input_path) {
         debug!(path = ?input_path, "Building Rojo project");
         Some(build_rojo(input_path)?)
@@ -103,7 +109,7 @@ fn build_input(input_path: &Path, args: &PackArgs, header: &Option<String>) -> R
 
     let stem = output_stem(input_path)?;
 
-    for &target in &args.targets {
+    for &target in targets {
         let span = tracing::debug_span!("pack_target", ?target);
         let _enter = span.enter();
 
