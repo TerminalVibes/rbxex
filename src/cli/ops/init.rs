@@ -549,7 +549,8 @@ pub(crate) fn build_package_json(opts: &ResolvedOptions) -> Value {
                 "build": "rbxtsc",
                 "watch": "rbxtsc -w",
                 "pack": "rbxex pack",
-                "pack:watch": "rbxex pack -w"
+                "pack:watch": "rbxex pack -w",
+                "pack:release": "rbxex pack --release"
             },
             "keywords": [],
             "author": "",
