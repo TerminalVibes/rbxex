@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-08
+
 ### Changed
 
 - `init` command now shows progress while it creates files and runs final setup commands
 - `init` command now reports elapsed setup time after initialization succeeds
+- `init` script template now generates a `pack:release` npm script
 - `pack` command now uses more conventional `--release`, `--all`, and `--compat` flags for simpler build selection, with `-t`/`--target` kept as an advanced explicit target mode
 - `pack` command now defaults to building only the debug bundle when no build selection flags are provided
 - `pack` command now defaults generated bundles to `dist` when `-o`/`--out-dir` is omitted
@@ -71,7 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--no-git`, `--no-eslint`, `--no-prettier`, `--no-vscode` flags opt out of individual scaffolded features
 - `--verbose` global flag for detailed diagnostic output
 
-[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/TerminalVibes/rbxex/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/TerminalVibes/rbxex/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/TerminalVibes/rbxex/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/TerminalVibes/rbxex/compare/v0.1.0...v0.1.1
