@@ -10,6 +10,8 @@ use notify::{RecursiveMode, Watcher};
 use serde_json::Value;
 use tracing::{debug, instrument, warn};
 
+use crate::cli::utils::command::resolve_command;
+
 #[instrument(skip(project_path), fields(path = ?project_path), err)]
 pub fn build_rojo(project_path: &Path) -> Result<PathBuf> {
     let timestamp = SystemTime::now()
@@ -20,7 +22,10 @@ pub fn build_rojo(project_path: &Path) -> Result<PathBuf> {
 
     debug!(output = ?temp_path, "Executing rojo build");
 
-    let output = Command::new("rojo")
+    let rojo =
+        resolve_command("rojo").context("Failed to execute rojo build. Is rojo installed?")?;
+
+    let output = Command::new(rojo)
         .arg("build")
         .arg(project_path)
         .arg("--output")

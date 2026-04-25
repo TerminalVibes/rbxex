@@ -1,13 +1,18 @@
-use std::borrow::Cow;
-use std::fs;
+use std::{
+    borrow::Cow,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use tempfile::tempdir;
 
 use crate::cli::commands::init::{PackageManager, Template, ToolchainManager};
 use crate::cli::ops::init::{
-    ResolvedOptions, build_file_list, build_package_json, check_conflicts, format_command_failure,
-    scaffold_files,
+    ResolvedOptions, build_file_list, build_package_json, check_conflicts,
+    detect_package_managers_with_resolver, format_command_failure, scaffold_files,
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 fn options(template: Template) -> ResolvedOptions {
     ResolvedOptions {
@@ -33,6 +38,28 @@ fn file_contents<'a>(files: &'a [(&str, Cow<'a, str>)], path: &str) -> &'a str {
         .find(|(candidate, _)| *candidate == path)
         .map(|(_, contents)| contents.as_ref())
         .unwrap()
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn write_success_command(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    fs::write(&path, "#!/bin/sh\necho 1.0.0\n").unwrap();
+    make_executable(&path);
+    path
+}
+
+#[cfg(windows)]
+fn write_success_command(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(format!("{name}.cmd"));
+    fs::write(&path, "@echo off\r\necho 1.0.0\r\nexit /B 0\r\n").unwrap();
+    path
 }
 
 #[test]
@@ -153,6 +180,16 @@ fn package_json_package_template_has_prepublish_script() {
         package_json["scripts"]["prepublishOnly"].as_str(),
         Some("npm run build")
     );
+}
+
+#[test]
+fn package_manager_detection_accepts_resolved_npm() {
+    let dir = tempdir().unwrap();
+    let npm = write_success_command(dir.path(), "npm");
+
+    let detected = detect_package_managers_with_resolver(|cmd| (cmd == "npm").then(|| npm.clone()));
+
+    assert_eq!(detected, vec![PackageManager::Npm]);
 }
 
 #[test]

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `init` command now detects Windows command shims such as `npm.cmd` when resolving installed package managers
+
 ## [0.4.0] - 2026-04-08
 
 ### Changed

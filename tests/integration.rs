@@ -59,6 +59,13 @@ mod cli {
     }
 
     pub mod utils {
+        pub mod command {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/cli/utils/command.rs"
+            ));
+        }
+
         pub mod rojo {
             include!(concat!(
                 env!("CARGO_MANIFEST_DIR"),

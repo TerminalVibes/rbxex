@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     fmt, fs,
     io::{self, IsTerminal, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
     sync::{
         Arc, Mutex,
@@ -16,7 +16,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use serde_json::{Value, json};
 
-use crate::cli::commands::init::{InitArgs, PackageManager, Template, ToolchainManager};
+use crate::cli::{
+    commands::init::{InitArgs, PackageManager, Template, ToolchainManager},
+    utils::command::resolve_command,
+};
 
 // ── Embedded templates ────────────────────────────────────────────────────────
 
@@ -64,11 +67,38 @@ const DEPS_ESLINT_PRETTIER_BRIDGE: &[&str] = &["eslint-config-prettier", "eslint
 // ── Tool detection ────────────────────────────────────────────────────────────
 
 fn is_installed(cmd: &str) -> bool {
-    Command::new(cmd)
-        .arg("--version")
+    let Some(resolved) = resolve_command(cmd) else {
+        return false;
+    };
+
+    command_succeeds(resolved, &["--version"])
+}
+
+fn command_succeeds(command: PathBuf, args: &[&str]) -> bool {
+    Command::new(command)
+        .args(args)
         .output()
-        .map(|o| o.status.success())
+        .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+pub(crate) fn detect_package_managers_with_resolver(
+    mut resolve: impl FnMut(&str) -> Option<PathBuf>,
+) -> Vec<PackageManager> {
+    [
+        PackageManager::Npm,
+        PackageManager::Pnpm,
+        PackageManager::Yarn,
+    ]
+    .into_iter()
+    .filter(|pm| {
+        let Some(resolved) = resolve(pm.as_cmd()) else {
+            return false;
+        };
+
+        command_succeeds(resolved, &["--version"])
+    })
+    .collect()
 }
 
 struct DetectedTools {
@@ -80,14 +110,7 @@ struct DetectedTools {
 }
 
 fn detect_tools() -> DetectedTools {
-    let package_managers = [
-        PackageManager::Npm,
-        PackageManager::Pnpm,
-        PackageManager::Yarn,
-    ]
-    .into_iter()
-    .filter(|pm| is_installed(pm.as_cmd()))
-    .collect();
+    let package_managers = detect_package_managers_with_resolver(resolve_command);
 
     DetectedTools {
         package_managers,
@@ -778,7 +801,9 @@ fn run_spinner(state: Arc<SpinnerState>) {
 
 fn run_command_silently(dir: &Path, cmd: &str, args: &[&str]) -> Result<()> {
     let command = format_command(cmd, args);
-    let output = Command::new(cmd)
+    let resolved = resolve_command(cmd)
+        .with_context(|| format!("Failed to run `{command}`. Is `{cmd}` installed?"))?;
+    let output = Command::new(resolved)
         .args(args)
         .current_dir(dir)
         .output()
