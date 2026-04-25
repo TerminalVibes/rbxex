@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-25
+
 ### Fixed
 
 - `init` command now detects Windows command shims such as `npm.cmd` when resolving installed package managers
@@ -78,7 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--no-git`, `--no-eslint`, `--no-prettier`, `--no-vscode` flags opt out of individual scaffolded features
 - `--verbose` global flag for detailed diagnostic output
 
-[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/TerminalVibes/rbxex/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/TerminalVibes/rbxex/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/TerminalVibes/rbxex/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/TerminalVibes/rbxex/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/TerminalVibes/rbxex/compare/v0.1.1...v0.2.0
