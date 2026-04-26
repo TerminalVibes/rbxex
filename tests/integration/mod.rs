@@ -1,4 +1,5 @@
 pub mod bundle;
+pub mod cli;
 pub mod init_scaffold;
 pub mod pack_ops;
 pub mod rojo_utils;
