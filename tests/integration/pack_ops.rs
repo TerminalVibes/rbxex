@@ -6,7 +6,9 @@ use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 
 use crate::cli::commands::pack::{CliTarget, PackArgs};
-use crate::cli::ops::pack::{configure_target, load_header, output_stem, resolve_inputs};
+use crate::cli::ops::pack::{
+    build_header, configure_target, load_header, output_stem, resolve_inputs,
+};
 
 use super::{fixture_path, make_dom, write_rbxm};
 
@@ -188,6 +190,25 @@ fn load_header_missing_file_returns_err() {
     let dir = tempdir().unwrap();
     let result = load_header(&pack_args(Some(dir.path().join("missing.lua"))));
     assert!(result.is_err());
+}
+
+#[test]
+fn build_header_places_custom_header_above_generated_header_with_one_separator() {
+    assert_eq!(
+        build_header(Some("-- custom header\n\n\r\n")),
+        format!(
+            "-- custom header\n-- Packed with rbxex v{}",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[test]
+fn build_header_uses_generated_header_when_custom_header_has_no_content() {
+    let generated = format!("-- Packed with rbxex v{}", env!("CARGO_PKG_VERSION"));
+
+    assert_eq!(build_header(None), generated);
+    assert_eq!(build_header(Some("\r\n\n")), generated);
 }
 
 #[test]

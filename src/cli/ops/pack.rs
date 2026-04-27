@@ -119,12 +119,9 @@ fn build_input(
 
         debug!("Packing target");
 
-        let mut source =
+        let source =
             bundle(&dom, options).with_context(|| format!("Failed to pack target {:?}", target))?;
-
-        if let Some(h) = header {
-            source = format!("{h}\n{source}");
-        }
+        let source = format!("{}\n{source}", build_header(header.as_deref()));
 
         fs::write(&output_path, source)
             .with_context(|| format!("Failed to write output to {}", output_path.display()))?;
@@ -306,6 +303,21 @@ pub(crate) fn load_header(args: &PackArgs) -> Result<Option<String>> {
         ))
     } else {
         Ok(None)
+    }
+}
+
+pub(crate) fn build_header(custom: Option<&str>) -> String {
+    let generated = format!("-- Packed with rbxex v{}", env!("CARGO_PKG_VERSION"));
+
+    let Some(custom) = custom else {
+        return generated;
+    };
+
+    let custom = custom.trim_end_matches(['\r', '\n']);
+    if custom.is_empty() {
+        generated
+    } else {
+        format!("{custom}\n{generated}")
     }
 }
 

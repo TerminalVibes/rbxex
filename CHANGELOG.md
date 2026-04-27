@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `pack` command now prepends a generated `rbxex` version header to bundled output
+
 ### Fixed
 
 - Bare `rbxex` now exits with code 0 after printing top-level help instead of exiting with a usage error code
