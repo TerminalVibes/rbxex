@@ -8,11 +8,14 @@ use tempfile::tempdir;
 
 use crate::cli::commands::init::{PackageManager, Template, ToolchainManager};
 use crate::cli::ops::init::{
-    ResolvedOptions, build_file_list, build_package_json, check_conflicts,
+    CommandSpec, ResolvedOptions, build_file_list, build_package_json, check_conflicts,
     detect_package_managers_with_resolver, format_command_failure, scaffold_files,
+    toolchain_install_commands,
 };
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+
+const GENERATED_TOOL_IDS: &[&str] = &["rojo-rbx/rojo", "terminalvibes/rbxex"];
 
 fn options(template: Template) -> ResolvedOptions {
     ResolvedOptions {
@@ -38,6 +41,41 @@ fn file_contents<'a>(files: &'a [(&str, Cow<'a, str>)], path: &str) -> &'a str {
         .find(|(candidate, _)| *candidate == path)
         .map(|(_, contents)| contents.as_ref())
         .unwrap()
+}
+
+fn toolchain_file_contents(manager: ToolchainManager) -> String {
+    let mut opts = options(Template::Script);
+    opts.toolchain_manager = Some(manager);
+
+    let path = match manager {
+        ToolchainManager::Rokit => "rokit.toml",
+        ToolchainManager::Aftman => "aftman.toml",
+        ToolchainManager::Foreman => "foreman.toml",
+        ToolchainManager::Mise => "mise.toml",
+    };
+
+    file_contents(&build_file_list(&opts), path).to_string()
+}
+
+fn command_tuple(command: &CommandSpec) -> (&'static str, Vec<&'static str>) {
+    (command.cmd, command.args.clone())
+}
+
+fn command_tuples(commands: &[CommandSpec]) -> Vec<(&'static str, Vec<&'static str>)> {
+    commands.iter().map(command_tuple).collect()
+}
+
+fn assert_rokit_trust_and_install_commands(commands: &[CommandSpec]) {
+    assert_eq!(
+        command_tuples(commands),
+        vec![
+            (
+                "rokit",
+                vec!["trust", "rojo-rbx/rojo", "terminalvibes/rbxex"]
+            ),
+            ("rokit", vec!["install"])
+        ]
+    );
 }
 
 #[cfg(unix)]
@@ -190,6 +228,78 @@ fn package_manager_detection_accepts_resolved_npm() {
     let detected = detect_package_managers_with_resolver(|cmd| (cmd == "npm").then(|| npm.clone()));
 
     assert_eq!(detected, vec![PackageManager::Npm]);
+}
+
+#[test]
+fn rokit_toolchain_commands_trust_generated_tools_before_install() {
+    let commands = toolchain_install_commands(ToolchainManager::Rokit, true);
+
+    assert_rokit_trust_and_install_commands(&commands);
+}
+
+#[test]
+fn aftman_toolchain_commands_without_rokit_trust_generated_tools_before_install() {
+    let commands = toolchain_install_commands(ToolchainManager::Aftman, false);
+
+    assert_eq!(
+        command_tuples(&commands),
+        vec![
+            ("aftman", vec!["trust", "rojo-rbx/rojo"]),
+            ("aftman", vec!["trust", "terminalvibes/rbxex"]),
+            ("aftman", vec!["install"])
+        ]
+    );
+}
+
+#[test]
+fn rokit_available_compat_managers_use_rokit_trust_flow() {
+    for manager in [ToolchainManager::Aftman, ToolchainManager::Foreman] {
+        let commands = toolchain_install_commands(manager, true);
+        assert_rokit_trust_and_install_commands(&commands);
+    }
+}
+
+#[test]
+fn mise_toolchain_commands_trust_config_then_install() {
+    let commands = toolchain_install_commands(ToolchainManager::Mise, false);
+
+    assert_eq!(
+        command_tuples(&commands),
+        vec![
+            ("mise", vec!["trust", "mise.toml"]),
+            ("mise", vec!["install"])
+        ]
+    );
+}
+
+#[test]
+fn foreman_toolchain_commands_without_rokit_install_without_trust() {
+    let commands = toolchain_install_commands(ToolchainManager::Foreman, false);
+
+    assert_eq!(
+        command_tuples(&commands),
+        vec![("foreman", vec!["install"])]
+    );
+}
+
+#[test]
+fn tool_trust_subjects_stay_in_sync_with_generated_toolchain_templates() {
+    let cases = [
+        ToolchainManager::Rokit,
+        ToolchainManager::Aftman,
+        ToolchainManager::Foreman,
+    ];
+
+    for manager in cases {
+        let config = toolchain_file_contents(manager);
+
+        for subject in GENERATED_TOOL_IDS {
+            assert!(
+                config.contains(subject),
+                "{manager:?} config should contain trusted subject {subject}"
+            );
+        }
+    }
 }
 
 #[test]

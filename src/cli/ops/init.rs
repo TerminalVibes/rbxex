@@ -64,6 +64,8 @@ const DEPS_PRETTIER: &[&str] = &["prettier"];
 // Only needed when both eslint and prettier are enabled
 const DEPS_ESLINT_PRETTIER_BRIDGE: &[&str] = &["eslint-config-prettier", "eslint-plugin-prettier"];
 
+const GENERATED_TOOLCHAIN_TOOL_IDS: &[&str] = &["rojo-rbx/rojo", "terminalvibes/rbxex"];
+
 // ── Tool detection ────────────────────────────────────────────────────────────
 
 fn is_installed(cmd: &str) -> bool {
@@ -613,6 +615,21 @@ fn run_install(dir: &Path, pm: PackageManager) -> Result<()> {
 
 // ── Toolchain manager install ─────────────────────────────────────────────────
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CommandSpec {
+    pub(crate) cmd: &'static str,
+    pub(crate) args: Vec<&'static str>,
+}
+
+impl CommandSpec {
+    fn new(cmd: &'static str, args: &[&'static str]) -> Self {
+        Self {
+            cmd,
+            args: args.to_vec(),
+        }
+    }
+}
+
 fn run_toolchain_install(
     dir: &Path,
     manager: Option<ToolchainManager>,
@@ -622,35 +639,54 @@ fn run_toolchain_install(
         return Ok(());
     };
 
-    for (cmd, args) in toolchain_install_commands(manager, rokit_available) {
-        run_command_silently(dir, cmd, args)?;
+    for command in toolchain_install_commands(manager, rokit_available) {
+        run_command_silently(dir, command.cmd, &command.args)?;
     }
 
     Ok(())
 }
 
-fn toolchain_install_commands(
+pub(crate) fn toolchain_install_commands(
     manager: ToolchainManager,
     rokit_available: bool,
-) -> Vec<(&'static str, &'static [&'static str])> {
+) -> Vec<CommandSpec> {
     match manager {
-        ToolchainManager::Rokit => vec![("rokit", &["install"] as &[&str])],
+        ToolchainManager::Rokit => rokit_toolchain_install_commands(),
         ToolchainManager::Aftman => {
             if rokit_available {
-                vec![("rokit", &["install"])]
+                rokit_toolchain_install_commands()
             } else {
-                vec![("aftman", &["install"])]
+                let mut commands: Vec<CommandSpec> = GENERATED_TOOLCHAIN_TOOL_IDS
+                    .iter()
+                    .map(|tool| CommandSpec::new("aftman", &["trust", *tool]))
+                    .collect();
+                commands.push(CommandSpec::new("aftman", &["install"]));
+                commands
             }
         }
         ToolchainManager::Foreman => {
             if rokit_available {
-                vec![("rokit", &["install"])]
+                rokit_toolchain_install_commands()
             } else {
-                vec![("foreman", &["install"])]
+                vec![CommandSpec::new("foreman", &["install"])]
             }
         }
-        ToolchainManager::Mise => vec![("mise", &["trust"]), ("mise", &["install"])],
+        ToolchainManager::Mise => vec![
+            CommandSpec::new("mise", &["trust", "mise.toml"]),
+            CommandSpec::new("mise", &["install"]),
+        ],
     }
+}
+
+fn rokit_toolchain_install_commands() -> Vec<CommandSpec> {
+    let mut trust_args = Vec::with_capacity(GENERATED_TOOLCHAIN_TOOL_IDS.len() + 1);
+    trust_args.push("trust");
+    trust_args.extend_from_slice(GENERATED_TOOLCHAIN_TOOL_IDS);
+
+    vec![
+        CommandSpec::new("rokit", &trust_args),
+        CommandSpec::new("rokit", &["install"]),
+    ]
 }
 
 // ── Version patching ──────────────────────────────────────────────────────────
